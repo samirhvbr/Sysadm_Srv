@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 
+import json
 import subprocess
 import requests
 import socket
 import time
 import os
 import hashlib
+import re
+import shutil
 
-CURRENT_VERSION = "1.2.85"
+CURRENT_VERSION = "1.2.86"
 CONFIG_PATH = "/etc/blue3-agent.conf"
 GITHUB_OWNER = "samirhvbr"
 GITHUB_REPO = "Sysadm_Srv"
+GITHUB_REPO_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}.git"
 DEFAULT_UPDATE_BRANCH = "master"
+SCRIPT_PATH = os.path.realpath(__file__)
+SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
+DEFAULT_UPDATE_REPO_DIR = os.path.join(SCRIPT_DIR, ".sysadm-srv-repo")
 API_URL = "https://sys.blue3.cloud/api/metrics"
 
 
@@ -21,10 +28,6 @@ API_URL = "https://sys.blue3.cloud/api/metrics"
 
 # Forçar IPv4
 requests.packages.urllib3.util.connection.allowed_gai_family = lambda: socket.AF_INET
-
-
-def build_raw_url(branch, file_name):
-    return f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{branch}/{file_name}"
 
 
 def read_config():
@@ -67,6 +70,20 @@ def write_config(config):
         f.write("\n".join(lines) + "\n")
 
     os.chmod(CONFIG_PATH, 0o600)
+
+
+def load_config_value(env_key, config_key, default_value):
+    env_value = os.getenv(env_key)
+    if env_value:
+        return env_value.strip()
+
+    try:
+        config = read_config()
+    except Exception as e:
+        print(f"Erro ao carregar {config_key}:", e)
+        return default_value
+
+    return config.get(config_key, default_value).strip() or default_value
 
 
 def coletar_dados():
@@ -148,17 +165,15 @@ def load_token():
 
 
 def load_update_branch():
-    env_branch = os.getenv("BLUE3_UPDATE_BRANCH")
-    if env_branch:
-        return env_branch.strip()
+    return load_config_value("BLUE3_UPDATE_BRANCH", "UPDATE_BRANCH", DEFAULT_UPDATE_BRANCH)
 
-    try:
-        config = read_config()
-    except Exception as e:
-        print("Erro ao carregar config de update:", e)
-        return DEFAULT_UPDATE_BRANCH
 
-    return config.get("UPDATE_BRANCH", DEFAULT_UPDATE_BRANCH).strip() or DEFAULT_UPDATE_BRANCH
+def load_update_repo_url():
+    return load_config_value("BLUE3_UPDATE_REPO_URL", "UPDATE_REPO_URL", GITHUB_REPO_URL)
+
+
+def load_update_repo_dir():
+    return load_config_value("BLUE3_UPDATE_REPO_DIR", "UPDATE_REPO_DIR", DEFAULT_UPDATE_REPO_DIR)
 
 
 
@@ -179,37 +194,175 @@ def calculate_sha256(content):
     return hashlib.sha256(content).hexdigest()
 
 
+def is_newer_version(candidate_version, current_version):
+    def normalize(version):
+        parts = [int(part) for part in re.findall(r"\d+", version)]
+        return tuple(parts or [0])
+
+    return normalize(candidate_version) > normalize(current_version)
+
+
+def run_command(command, cwd=None):
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+def ensure_git_available():
+    if shutil.which("git"):
+        return True
+
+    print("Git não encontrado. Tentando instalar automaticamente...")
+
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        if not shutil.which("sudo"):
+            print("ERRO: git não encontrado e sudo indisponível para instalar automaticamente.")
+            return False
+        prefix = ["sudo", "-n"]
+    else:
+        prefix = []
+
+    installers = [
+        (["apt-get", "update"], ["apt-get", "install", "-y", "git"]),
+        (None, ["apt", "install", "-y", "git"]),
+        (None, ["dnf", "install", "-y", "git"]),
+        (None, ["yum", "install", "-y", "git"]),
+        (None, ["apk", "add", "git"]),
+        (None, ["zypper", "--non-interactive", "install", "git"]),
+    ]
+
+    for prepare_command, install_command in installers:
+        if not shutil.which(install_command[0]):
+            continue
+
+        if prepare_command:
+            result = run_command(prefix + prepare_command)
+            if result.returncode != 0:
+                output = result.stdout.strip()
+                if output:
+                    print(output)
+                continue
+
+        result = run_command(prefix + install_command)
+        if result.returncode == 0 and shutil.which("git"):
+            print("Git instalado com sucesso.")
+            return True
+
+        output = result.stdout.strip()
+        if output:
+            print(output)
+
+    print("ERRO: não foi possível instalar git automaticamente.")
+    return False
+
+
+def run_git_command(args, cwd=None):
+    return run_command(["git", *args], cwd=cwd)
+
+
+def sync_update_repository():
+    if not ensure_git_available():
+        return ""
+
+    repo_dir = UPDATE_REPO_DIR
+    repo_parent = os.path.dirname(repo_dir)
+
+    if repo_parent:
+        os.makedirs(repo_parent, exist_ok=True)
+
+    if not os.path.exists(repo_dir):
+        print(f"Clonando repositório de update em: {repo_dir}")
+        result = run_git_command(
+            ["clone", "--depth", "1", "--branch", UPDATE_BRANCH, UPDATE_REPO_URL, repo_dir]
+        )
+        if result.returncode != 0:
+            output = result.stdout.strip()
+            if output:
+                print(output)
+            return ""
+        return repo_dir
+
+    if not os.path.isdir(repo_dir):
+        print(f"ERRO: caminho de update inválido: {repo_dir}")
+        return ""
+
+    if not os.path.isdir(os.path.join(repo_dir, ".git")):
+        print(f"ERRO: o diretório de update não é um repositório git: {repo_dir}")
+        return ""
+
+    for args in (
+        ["remote", "set-url", "origin", UPDATE_REPO_URL],
+        ["fetch", "origin", UPDATE_BRANCH, "--depth", "1"],
+        ["checkout", "-B", UPDATE_BRANCH, f"origin/{UPDATE_BRANCH}"],
+    ):
+        result = run_git_command(args, cwd=repo_dir)
+        if result.returncode != 0:
+            output = result.stdout.strip()
+            if output:
+                print(output)
+            return ""
+
+    return repo_dir
+
+
+def read_script_version(script_path):
+    with open(script_path, encoding="utf-8") as f:
+        content = f.read()
+
+    match = re.search(r'^CURRENT_VERSION\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+def read_version_metadata(repo_dir):
+    version_file = os.path.join(repo_dir, "version.json")
+
+    if not os.path.exists(version_file):
+        return {}
+
+    try:
+        with open(version_file, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print("Aviso: version.json inválido no repositório:", e)
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
 # 🔄 Update seguro
 def check_update():
     try:
-        print(f"Verificando updates no ramo: {UPDATE_BRANCH}")
+        print(f"Verificando updates via git no ramo: {UPDATE_BRANCH}")
 
-        r = requests.get(
-            VERSION_URL,
-            timeout=3,
-            headers={"Cache-Control": "no-cache"}
-        )
-
-        data = r.json()
-
-        if data["version"] == CURRENT_VERSION:
+        repo_dir = sync_update_repository()
+        if not repo_dir:
             return False
 
-        print("Nova versão disponível:", data["version"])
-
-        script_url = data.get("url") or build_raw_url(data.get("branch", UPDATE_BRANCH), "srv.py")
-
-        response = requests.get(
-            script_url,
-            timeout=5,
-            headers={"Cache-Control": "no-cache"}
-        )
-
-        if response.status_code != 200:
-            print("ERRO ao baixar script:", response.status_code)
+        repo_script_path = os.path.join(repo_dir, "srv.py")
+        if not os.path.exists(repo_script_path):
+            print(f"ERRO: srv.py não encontrado no repositório local: {repo_script_path}")
             return False
 
-        new_script_bytes = response.content
+        new_version = read_script_version(repo_script_path)
+        if not new_version:
+            print("ERRO: não foi possível identificar CURRENT_VERSION no repositório git")
+            return False
+
+        if new_version == CURRENT_VERSION:
+            return False
+
+        if not is_newer_version(new_version, CURRENT_VERSION):
+            print(f"Versão remota {new_version} não é superior à versão atual {CURRENT_VERSION}")
+            return False
+
+        print("Nova versão disponível:", new_version)
+
+        with open(repo_script_path, "rb") as f:
+            new_script_bytes = f.read()
 
         # 🔥 proteção HTML
         if b"<html" in new_script_bytes[:200]:
@@ -221,27 +374,33 @@ def check_update():
             print("ERRO: arquivo inválido (não é script Python)")
             return False
 
-        # 🔐 valida hash
+        metadata = read_version_metadata(repo_dir)
         downloaded_hash = calculate_sha256(new_script_bytes)
+        expected_hash = ""
 
-        if downloaded_hash != data["sha256"]:
+        if metadata.get("version") == new_version:
+            expected_hash = str(metadata.get("sha256", "")).strip()
+
+        if expected_hash and downloaded_hash != expected_hash:
             print("ERRO: hash inválido! Update abortado.")
             return False
 
-        print("Hash OK, aplicando update...")
+        print("Hash OK, aplicando update via git...")
 
-        script_path = os.path.realpath(__file__)
+        if os.path.realpath(repo_script_path) == SCRIPT_PATH:
+            print("Repositório local sincronizado com sucesso. Reinicie o processo.")
+            return True
 
         # backup
-        with open(script_path + ".bak", "wb") as f:
-            with open(script_path, "rb") as original:
+        with open(SCRIPT_PATH + ".bak", "wb") as f:
+            with open(SCRIPT_PATH, "rb") as original:
                 f.write(original.read())
 
         # update
-        with open(script_path, "wb") as f:
+        with open(SCRIPT_PATH, "wb") as f:
             f.write(new_script_bytes)
 
-        print("Script atualizado com sucesso. Reinicie o processo.")
+        print("Script atualizado com sucesso a partir do git. Reinicie o processo.")
         return True
 
     except Exception as e:
@@ -253,7 +412,8 @@ def check_update():
 # 🔹 Token
 TOKEN = load_token()
 UPDATE_BRANCH = load_update_branch()
-VERSION_URL = build_raw_url(UPDATE_BRANCH, "version.json")
+UPDATE_REPO_URL = load_update_repo_url()
+UPDATE_REPO_DIR = load_update_repo_dir()
 
 
 def run(cmd):

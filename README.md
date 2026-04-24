@@ -5,10 +5,10 @@ Este projeto passa a usar o GitHub como origem principal das atualizações do a
 ## Origem de update
 
 - Repositório principal: `https://github.com/samirhvbr/Sysadm_Srv`
-- `srv.py` publicado via raw GitHub: `https://raw.githubusercontent.com/samirhvbr/Sysadm_Srv/<branch>/srv.py`
-- `version.json` publicado via raw GitHub: `https://raw.githubusercontent.com/samirhvbr/Sysadm_Srv/<branch>/version.json`
+- O agente sincroniza um clone local via `git clone` / `git fetch` / `git checkout`
+- O `version.json` continua existindo no repositório para metadados de versão e validação de hash
 
-O agente agora monta a URL de atualização a partir do ramo configurado. Em produção o padrão é `master`.
+O agente agora consulta o repositório git configurado. Em produção o padrão é `master`.
 
 ## Configuração do agente
 
@@ -19,13 +19,17 @@ Exemplo:
 ```ini
 TOKEN=seu-token-aqui
 UPDATE_BRANCH=master
+UPDATE_REPO_URL=https://github.com/samirhvbr/Sysadm_Srv.git
+UPDATE_REPO_DIR=/opt/blue3/sysadm-srv
 ```
 
 Prioridades de configuração:
 
-1. `BLUE3_TOKEN` e `BLUE3_UPDATE_BRANCH` via ambiente
-2. `TOKEN` e `UPDATE_BRANCH` no arquivo `/etc/blue3-agent.conf`
+1. `BLUE3_TOKEN`, `BLUE3_UPDATE_BRANCH`, `BLUE3_UPDATE_REPO_URL` e `BLUE3_UPDATE_REPO_DIR` via ambiente
+2. `TOKEN`, `UPDATE_BRANCH`, `UPDATE_REPO_URL` e `UPDATE_REPO_DIR` no arquivo `/etc/blue3-agent.conf`
 3. ramo padrão `master`
+
+Se o servidor não tiver `git`, o agente tenta instalar automaticamente usando o gerenciador de pacotes disponível (`apt-get`, `apt`, `dnf`, `yum`, `apk` ou `zypper`).
 
 ## Fluxo de versão
 
@@ -52,4 +56,6 @@ Exemplos:
 
 ## Migração dos agentes já instalados
 
-Agentes antigos ainda consultam a URL legada em `files.b3.rs`. Para migrá-los para o GitHub, faça um bootstrap uma única vez: publique a nova versão do `srv.py` e do `version.json` legados, para que eles baixem a versão `1.2.85` e passem a consultar o GitHub nas próximas atualizações.
+Agentes antigos ainda consultam a URL legada em `files.b3.rs`. Para migrá-los para o git, ainda é necessário entregar a versão `1.2.86` uma única vez pelo canal atual ou manualmente. Depois disso, as próximas atualizações passam a ser feitas consultando o repositório git configurado, sem depender do URL local.
+
+O instalador base também deve garantir `git` no servidor. O script [www/files.b3.rs/blue3/blue3_start_script/start.sh](www/files.b3.rs/blue3/blue3_start_script/start.sh#L39) agora inclui `git` na lista de pacotes básicos.
