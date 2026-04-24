@@ -1,0 +1,9 @@
+<FilesMatch "\.(py|json)$">
+    ForceType text/plain
+</FilesMatch>
+
+# 🔥 não deixar Laravel interceptar esses arquivos
+RewriteEngine On
+
+RewriteCond %{REQUEST_URI} \.(py|json)$
+RewriteRule ^ - [L]
