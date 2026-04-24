@@ -1,5 +1,6 @@
 {
-  "version": "1.2.84",
-  "url": "https://files.b3.rs/blue3/srv/srv.py",
-  "sha256": "bd1b798200d6790ffd3cdb37fe34025b118f03f797421c83432928a8351ab721"
+  "version": "1.2.85",
+  "branch": "master",
+  "url": "https://raw.githubusercontent.com/samirhvbr/Sysadm_Srv/master/srv.py",
+  "sha256": "140834eb57ea9993d1aa0f43aaa24530a172d2ab56ade20dd1f676bca3981cd5"
 }
