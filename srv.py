@@ -7,8 +7,11 @@ import time
 import os
 import hashlib
 
-CURRENT_VERSION = "1.2.84"
-VERSION_URL = "https://files.b3.rs/blue3/srv/version.json"
+CURRENT_VERSION = "1.2.85"
+CONFIG_PATH = "/etc/blue3-agent.conf"
+GITHUB_OWNER = "samirhvbr"
+GITHUB_REPO = "Sysadm_Srv"
+DEFAULT_UPDATE_BRANCH = "master"
 API_URL = "https://sys.blue3.cloud/api/metrics"
 
 
@@ -18,6 +21,52 @@ API_URL = "https://sys.blue3.cloud/api/metrics"
 
 # Forçar IPv4
 requests.packages.urllib3.util.connection.allowed_gai_family = lambda: socket.AF_INET
+
+
+def build_raw_url(branch, file_name):
+    return f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{branch}/{file_name}"
+
+
+def read_config():
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+
+    with open(CONFIG_PATH) as f:
+        content = f.read().strip()
+
+    if not content:
+        return {}
+
+    if "=" not in content:
+        return {"TOKEN": content}
+
+    config = {}
+
+    for line in content.splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        config[key.strip()] = value.strip().strip('"').strip("'")
+
+    return config
+
+
+def write_config(config):
+    lines = []
+
+    for key in sorted(config):
+        value = str(config[key]).strip()
+        if not value:
+            continue
+        lines.append(f"{key}={value}")
+
+    with open(CONFIG_PATH, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    os.chmod(CONFIG_PATH, 0o600)
 
 
 def coletar_dados():
@@ -54,8 +103,6 @@ def enviar_dados(data):
 
 # 🔐 Carregar token
 def load_token():
-    config_path = "/etc/blue3-agent.conf"
-
     # 🔹 1. ENV tem prioridade
     env_token = os.getenv("BLUE3_TOKEN")
     if env_token:
@@ -64,8 +111,8 @@ def load_token():
 
     try:
         # 🔹 2. Se não existe, cria interativamente
-        if not os.path.exists(config_path):
-            print(f"⚠️ Arquivo não encontrado: {config_path}")
+        if not os.path.exists(CONFIG_PATH):
+            print(f"⚠️ Arquivo não encontrado: {CONFIG_PATH}")
 
             token = input("🔑 Informe o TOKEN do agente: ").strip()
 
@@ -74,12 +121,9 @@ def load_token():
                 return ""
 
             try:
-                with open(config_path, "w") as f:
-                    f.write(token + "\n")
+                write_config({"TOKEN": token})
 
-                os.chmod(config_path, 0o600)
-
-                print(f"✅ Arquivo criado: {config_path}")
+                print(f"✅ Arquivo criado: {CONFIG_PATH}")
 
             except Exception as e:
                 print("❌ Erro ao salvar token:", e)
@@ -88,31 +132,33 @@ def load_token():
             return token
 
         # 🔹 3. Se existe, lê
-        with open(config_path) as f:
-            content = f.read().strip()
+        config = read_config()
+        token = config.get("TOKEN", "").strip()
 
-            if not content:
-                print("❌ Arquivo de token vazio")
-                return ""
+        if not token:
+            print("❌ Arquivo de token vazio")
+            return ""
 
-            if "=" not in content:
-                return content
-
-            for line in content.splitlines():
-                line = line.strip()
-
-                if not line or line.startswith("#"):
-                    continue
-
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    if key.strip() == "TOKEN":
-                        return value.strip().strip('"').strip("'")
+        return token
 
     except Exception as e:
         print("Erro ao carregar token:", e)
 
     return ""
+
+
+def load_update_branch():
+    env_branch = os.getenv("BLUE3_UPDATE_BRANCH")
+    if env_branch:
+        return env_branch.strip()
+
+    try:
+        config = read_config()
+    except Exception as e:
+        print("Erro ao carregar config de update:", e)
+        return DEFAULT_UPDATE_BRANCH
+
+    return config.get("UPDATE_BRANCH", DEFAULT_UPDATE_BRANCH).strip() or DEFAULT_UPDATE_BRANCH
 
 
 
@@ -136,6 +182,8 @@ def calculate_sha256(content):
 # 🔄 Update seguro
 def check_update():
     try:
+        print(f"Verificando updates no ramo: {UPDATE_BRANCH}")
+
         r = requests.get(
             VERSION_URL,
             timeout=3,
@@ -149,8 +197,10 @@ def check_update():
 
         print("Nova versão disponível:", data["version"])
 
+        script_url = data.get("url") or build_raw_url(data.get("branch", UPDATE_BRANCH), "srv.py")
+
         response = requests.get(
-            data["url"],
+            script_url,
             timeout=5,
             headers={"Cache-Control": "no-cache"}
         )
@@ -202,6 +252,8 @@ def check_update():
 
 # 🔹 Token
 TOKEN = load_token()
+UPDATE_BRANCH = load_update_branch()
+VERSION_URL = build_raw_url(UPDATE_BRANCH, "version.json")
 
 
 def run(cmd):

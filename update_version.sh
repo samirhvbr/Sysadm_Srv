@@ -1,14 +1,23 @@
 #!/bin/bash
 
-chown -R www-data:www-data *
+set -euo pipefail
 
-set -e
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_FILE="$REPO_DIR/srv.py"
+VERSION_FILE="$REPO_DIR/version.json"
+GITHUB_OWNER="samirhvbr"
+GITHUB_REPO="Sysadm_Srv"
+DEFAULT_BRANCH="master"
 
-BASE_DIR="/srv/web/www/files.b3.rs/BLUE3/srv"
-SCRIPT_FILE="$BASE_DIR/srv.py"
-VERSION_FILE="$BASE_DIR/version.json"
+cd "$REPO_DIR"
 
-PUBLIC_URL="https://files.b3.rs/blue3/srv/srv.py"
+BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
+if [ "$BRANCH" = "HEAD" ] || [ -z "$BRANCH" ]; then
+    BRANCH="$DEFAULT_BRANCH"
+fi
+
+RAW_BASE_URL="https://raw.githubusercontent.com/$GITHUB_OWNER/$GITHUB_REPO/$BRANCH"
+PUBLIC_URL="$RAW_BASE_URL/srv.py"
 
 echo "🧹 Normalizando indentação (tabs → espaços)..."
 expand -t 4 "$SCRIPT_FILE" > "$SCRIPT_FILE.tmp" && mv "$SCRIPT_FILE.tmp" "$SCRIPT_FILE"
@@ -24,21 +33,22 @@ fi
 
 echo "✔️ Versão encontrada: $VERSION"
 
-echo "🌐 Baixando arquivo via HTTP (sem cache)..."
-
-curl -s -H "Cache-Control: no-cache" "$PUBLIC_URL" -o /tmp/srv_remote.py
+if ! git diff --quiet -- "$SCRIPT_FILE"; then
+    echo "⚠️ srv.py possui mudanças locais. Faça commit e push do mesmo conteúdo antes de distribuir esta versão."
+fi
 
 echo "🔐 Calculando SHA256..."
 
-SHA256=$(sha256sum /tmp/srv_remote.py | awk '{print $1}')
+SHA256=$(sha256sum "$SCRIPT_FILE" | awk '{print $1}')
 
 echo "✔️ SHA256: $SHA256"
 
 echo "📝 Atualizando version.json..."
 
-printf '{\n  "version": "%s",\n  "url": "%s",\n  "sha256": "%s"\n}\n' \
-"$VERSION" "$PUBLIC_URL" "$SHA256" > "$VERSION_FILE"
+printf '{\n  "version": "%s",\n  "branch": "%s",\n  "url": "%s",\n  "sha256": "%s"\n}\n' \
+"$VERSION" "$BRANCH" "$PUBLIC_URL" "$SHA256" > "$VERSION_FILE"
 
 echo "🚀 Atualização concluída!"
 echo "📄 Novo version.json:"
 cat "$VERSION_FILE"
+echo "📌 Origem principal: $RAW_BASE_URL"
