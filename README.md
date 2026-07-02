@@ -1,20 +1,20 @@
 # Sysadm_Srv
 
-Este projeto passa a usar o GitHub como origem principal das atualizações do agente.
+This project now uses GitHub as the primary source for agent updates.
 
-## Origem de update
+## Update source
 
-- Repositório principal: `https://github.com/samirhvbr/Sysadm_Srv`
-- O agente sincroniza um clone local via `git clone` / `git fetch` / `git checkout`
-- O `version.json` continua existindo no repositório para metadados de versão e validação de hash
+- Main repository: `https://github.com/samirhvbr/Sysadm_Srv`
+- The agent syncs a local clone via `git clone` / `git fetch` / `git checkout`
+- `version.json` still exists in the repository for version metadata and hash validation
 
-O agente agora consulta o repositório git configurado. Em produção o padrão é `master`.
+The agent now queries the configured git repository. In production, the default is `master`.
 
-## Configuração do agente
+## Agent configuration
 
-Arquivo: `/etc/blue3-agent.conf`
+File: `/etc/blue3-agent.conf`
 
-Exemplo:
+Example:
 
 ```ini
 TOKEN=seu-token-aqui
@@ -23,39 +23,39 @@ UPDATE_REPO_URL=https://github.com/samirhvbr/Sysadm_Srv.git
 UPDATE_REPO_DIR=/opt/blue3/sysadm-srv
 ```
 
-Prioridades de configuração:
+Configuration priorities:
 
-1. `BLUE3_TOKEN`, `BLUE3_UPDATE_BRANCH`, `BLUE3_UPDATE_REPO_URL` e `BLUE3_UPDATE_REPO_DIR` via ambiente
-2. `TOKEN`, `UPDATE_BRANCH`, `UPDATE_REPO_URL` e `UPDATE_REPO_DIR` no arquivo `/etc/blue3-agent.conf`
-3. ramo padrão `master`
+1. `BLUE3_TOKEN`, `BLUE3_UPDATE_BRANCH`, `BLUE3_UPDATE_REPO_URL` and `BLUE3_UPDATE_REPO_DIR` via environment
+2. `TOKEN`, `UPDATE_BRANCH`, `UPDATE_REPO_URL` and `UPDATE_REPO_DIR` in the `/etc/blue3-agent.conf` file
+3. default branch `master`
 
-Se o servidor não tiver `git`, o agente tenta instalar automaticamente usando o gerenciador de pacotes disponível (`apt-get`, `apt`, `dnf`, `yum`, `apk` ou `zypper`).
+If the server does not have `git`, the agent tries to install it automatically using the available package manager (`apt-get`, `apt`, `dnf`, `yum`, `apk` or `zypper`).
 
-## Fluxo de versão
+## Version flow
 
-1. Altere `srv.py` e atualize `CURRENT_VERSION`.
-2. Gere o `version.json` do ramo atual com `./update_version.sh`.
-3. Faça commit de `srv.py` e `version.json`.
-4. Faça push para o ramo que será usado no teste ou produção.
+1. Change `srv.py` and update `CURRENT_VERSION`.
+2. Generate the current branch's `version.json` with `./update_version.sh`.
+3. Commit `srv.py` and `version.json`.
+4. Push to the branch that will be used for testing or production.
 
-Exemplos:
+Examples:
 
 ```bash
 ./update_version.sh
 ./update_version.sh testing
 ```
 
-## Fluxo de teste antes de promover
+## Testing flow before promoting
 
-1. Crie ou use um ramo de teste, por exemplo `testing`.
-2. Gere `version.json` apontando para esse ramo com `./update_version.sh testing`.
-3. Faça push do ramo.
-4. Nos servidores de teste, defina `UPDATE_BRANCH=testing` ou `BLUE3_UPDATE_BRANCH=testing`.
-5. Valide o auto-update.
-6. Depois de aprovado, mescle ou replique a mudança em `master`, rode `./update_version.sh master` e faça push.
+1. Create or use a test branch, for example `testing`.
+2. Generate `version.json` pointing to that branch with `./update_version.sh testing`.
+3. Push the branch.
+4. On the test servers, set `UPDATE_BRANCH=testing` or `BLUE3_UPDATE_BRANCH=testing`.
+5. Validate the auto-update.
+6. Once approved, merge or replicate the change into `master`, run `./update_version.sh master` and push.
 
-## Migração dos agentes já instalados
+## Migrating already-installed agents
 
-Agentes antigos ainda consultam a URL legada em `files.b3.rs`. Para migrá-los para o git, ainda é necessário entregar a versão `1.2.86` uma única vez pelo canal atual ou manualmente. Depois disso, as próximas atualizações passam a ser feitas consultando o repositório git configurado, sem depender do URL local.
+Old agents still query the legacy URL at `files.b3.rs`. To migrate them to git, it is still necessary to deliver version `1.2.86` once via the current channel or manually. After that, subsequent updates start being done by querying the configured git repository, without depending on the local URL.
 
-O instalador base também deve garantir `git` no servidor. O script [www/files.b3.rs/blue3/blue3_start_script/start.sh](www/files.b3.rs/blue3/blue3_start_script/start.sh#L39) agora inclui `git` na lista de pacotes básicos.
+The base installer must also ensure `git` is present on the server. The [www/files.b3.rs/blue3/blue3_start_script/start.sh](www/files.b3.rs/blue3/blue3_start_script/start.sh#L39) script now includes `git` in the list of base packages.
