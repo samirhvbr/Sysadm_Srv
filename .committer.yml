@@ -1,10 +1,6 @@
 # Opt-in do COMMITTER neste repositório (ADR-004 do skill-COMMITTER).
 # A presença deste arquivo é o opt-in; as chaves só RESTRINGEM (SPEC.md §2).
 # Varredura: ~/x/GIT/run.sh (cron) descobre quem tem este marcador.
-#
-# ⚠️ Este repo ainda NÃO tem version.md. Sem ele não existe o formato
-# "X.Y.Z - descrição" da casa, então o ciclo reporta e NÃO commita. Criar o
-# version.md aqui é decisão do projeto — feito isso, a skill passa a operar.
 enabled: true
 push: true
 branch_only: master
