@@ -1,0 +1,65 @@
+# Publishes a GitHub Release for the version in version.md, on every push.
+#
+# WHY A WORKFLOW AND NOT ONLY THE COMMITTER SKILL: this fires no matter who
+# pushed — Samir by hand, an agent, or the cron cycle. The COMMITTER marker is
+# `enabled: false` in most repos right now, so a skill-only design would leave
+# the majority of the fleet without Releases.
+#
+# It does NOT duplicate the versioning logic: it calls tools/release.sh, the
+# same script used for the backfill and for local runs. Two copies of one rule
+# is how a rule ends up with two versions, one of them wrong.
+#
+# Doing nothing is the normal outcome — the tag for the current version usually
+# already exists. Never fails a push over that.
+#
+# Norm: docs/versioning.md · docs/decisions.md ADR-011, ADR-013
+name: Release
+
+on:
+  push:
+    branches: [master, main]
+    paths: ["version.md"]      # only a version bump can produce a new Release
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Publish every version in history, not just the current one"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One release run at a time per branch: two concurrent pushes must not race
+  # to create the same tag.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # only this job writes; creating a tag needs it
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history: the backfill walks git log, and the notes come from
+          # the CHANGELOG section for the version.
+          fetch-depth: 0
+
+      - name: Publish the Release for version.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -x tools/release.sh ]; then
+            echo "::notice::no tools/release.sh in this repo — nothing to do"
+            exit 0
+          fi
+          if [ ! -f version.md ]; then
+            echo "::notice::no version.md — nothing to release"
+            exit 0
+          fi
+          MODE=--current
+          [ "${{ inputs.backfill }}" = "true" ] && MODE=--backfill
+          ./tools/release.sh "$MODE" --repo "$GITHUB_REPOSITORY"
