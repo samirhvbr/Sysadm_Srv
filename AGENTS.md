@@ -44,4 +44,21 @@ A PR publishes nothing while it is a PR. The moment it merges, the push moves
 
 Tag and Release title are the **bare version — no `v` prefix**.
 
+## Language — English (US), everywhere in the repository
+
+**Everything that lives in this repository, or in GitHub's interface around it,
+is written in English (US)**: documents, **commit messages**, pull request titles
+and bodies, issues, code comments, changelog entries, release notes.
+
+Commit format: `X.Y.Z - short description in English`. The version comes from
+`version.md` and is bumped in the same commit. Conventional Commits prefixes
+(`feat:`, `fix:`, `chore:`) and vague one-word messages are forbidden.
+
+**Exactly one carve-out:** end-user-facing strings — UI text, transactional
+email, product copy. That is product i18n for a Brazilian audience, not
+repository content.
+
+History is not rewritten: Portuguese messages already in the log stay as they
+are.
+
 <!-- /RELEASES-RULE -->
