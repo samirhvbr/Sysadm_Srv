@@ -1,6 +1,6 @@
 # Versão — SYSADM-SERVER
 
-**Versão atual:** `0.1.5`
+**Versão atual:** `0.1.6`
 
 Agente de administração de servidores, com atualização a partir do GitHub.
 
