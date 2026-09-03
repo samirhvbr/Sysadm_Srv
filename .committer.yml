@@ -1,7 +1,19 @@
 # Opt-in do COMMITTER neste repositório (ADR-004 do skill-COMMITTER).
 # A presença deste arquivo é o opt-in; as chaves só RESTRINGEM (SPEC.md §2).
 # Varredura: ~/x/GIT/run.sh (cron) descobre quem tem este marcador.
-enabled: true
+#
+# 🔴 TURNED OFF on 2026-09-03, house-wide, at the owner's request. This is the
+# kill-switch (SPEC §1.2), NOT a removal: the marker stays so re-enabling is one
+# line, and the per-repo settings below — and the reasoning attached to them —
+# stay with it.
+#
+# Nothing else has to change to complete the shutdown. The PS block in
+# CLAUDE.md/AGENTS.md is written against this key ("or it is `enabled: false` —
+# then the old flow applies"), so agents go back to bumping, committing and
+# pushing themselves. The sweep in ~/x/GIT/run.sh still finds this repo by the
+# marker; the cycle is what skips it.
+#
+enabled: false
 push: true
 branch_only: master
 fallback: sonnet
