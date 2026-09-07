@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# repodocs:hook — generated from samirhvbr/repodocs and regenerated in place.
+# A copy without this line is the repository's own hook and is never overwritten.
+# commit-msg — the commit subject must be `X.Y.Z - description`, and the X.Y.Z
+# must be the version this commit actually carries in version.md.
+#
+# Why here: this is the only moment the message exists and the commit does not.
+# It cannot see the remote (that is pre-push's job) and it does not run any
+# suite — a hook that makes committing slow becomes a hook people bypass.
+#
+# Norm: docs/versioning.md · escape hatch: $HOOK_ESCAPE_VAR (see below)
+set -euo pipefail
+
+# Rename this to your project prefix, e.g. SHVIA_NO_HOOK. One place to change.
+HOOK_ESCAPE_VAR="REPODOCS_NO_HOOK"
+
+if [ "${!HOOK_ESCAPE_VAR:-0}" = "1" ]; then
+  echo "commit-msg: skipped ($HOOK_ESCAPE_VAR=1)" >&2
+  exit 0
+fi
+
+# A subject git wrote is not a subject a person wrote, and it carries no version
+# of its own: a merge's versions are in the commits being merged, a revert's is
+# in the commit it undoes, and a fixup or squash line is consumed by the rebase
+# that lands it. Refusing them teaches --no-verify, which switches off every
+# guard at once. EOP's own commit-msg has carried this exemption list since
+# 04/09/2026; this is that list, not a new idea.
+git_dir="$(git rev-parse --git-dir)"
+if [ -f "$git_dir/MERGE_HEAD" ]; then
+  echo "commit-msg: merge commit — subject not checked." >&2
+  exit 0
+fi
+
+msg_file="$1"
+# First non-comment, non-empty line = the subject.
+subject="$(grep -v '^#' "$msg_file" | grep -v '^[[:space:]]*$' | head -n 1 || true)"
+
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*)
+    echo "commit-msg: subject written by git — not checked." >&2
+    exit 0
+    ;;
+esac
+
+die() {
+  echo "" >&2
+  echo "commit-msg: REJECTED — $1" >&2
+  echo "" >&2
+  echo "  subject read: ${subject:-(empty)}" >&2
+  echo "  required:     X.Y.Z - short description" >&2
+  echo "  example:      1.0.0 - initial documentation structure" >&2
+  echo "" >&2
+  echo "  The version comes from version.md and is bumped in this same commit." >&2
+  echo "  Rules: docs/versioning.md · language: docs/conventions.md §8" >&2
+  echo "  Bypass: $HOOK_ESCAPE_VAR=1" >&2
+  echo "" >&2
+  exit 1
+}
+
+[ -n "$subject" ] || die "empty commit message"
+
+# Conventional Commits are forbidden fleet-wide: the version, not a type
+# prefix, is what makes `git log` searchable here.
+if printf '%s' "$subject" | grep -qiE '^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\([^)]*\))?!?:'; then
+  die "Conventional Commits prefix is forbidden (feat:/fix:/chore:/...)"
+fi
+
+if ! printf '%s' "$subject" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+ - .+'; then
+  die "subject does not start with a version followed by ' - ' and a comment"
+fi
+
+# The version in the subject is the version this commit carries, not a number
+# typed from memory. This is the check the shape test cannot make: a subject
+# carrying another repository's version, or a bump that never entered the
+# commit, is well-formed and still wrong. Measured before this existed: one
+# repository four commits deep on a version its version.md had never reached,
+# and one stamping a sibling repository's number.
+#
+# The index is the authority — it is what the commit will contain. A commit
+# that repeats the previous commit's version (a delivery split into blocks)
+# passes: the file already holds that number and the index still shows it.
+subject_version="${subject%% - *}"
+version_file="version.md"
+file_version=""
+
+if git cat-file -e ":$version_file" 2>/dev/null; then
+  file_version="$(git show ":$version_file" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+elif [ -f "$version_file" ]; then
+  file_version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$version_file" | head -n 1 || true)"
+fi
+
+if [ -z "$file_version" ]; then
+  # No version.md, or no semver in it. pre-push answers the same case with a
+  # warning rather than a refusal, for the same reason: a guard that blocks the
+  # work when it cannot measure is a guard that gets switched off.
+  echo "commit-msg: WARNING — no version found in $version_file; subject version not verified." >&2
+elif [ "$subject_version" != "$file_version" ]; then
+  die "subject says $subject_version, $version_file says $file_version — bump the file in this commit, or fix the subject"
+fi
+
+comment="${subject#* - }"
+# A comment must actually describe something. Single vague words are the
+# failure mode the norm names explicitly.
+if printf '%s' "$comment" | grep -qiE '^(ajuste|ajustes|update|updates|fix|fixes|correcao|correção|wip|teste|test|tests|misc|varios|vários|changes|stuff|tweak|tweaks|cleanup|refactor|improvements?)[[:space:]]*\.?$'; then
+  die "vague comment ('$comment') — say what changed and why"
+fi
+
+if [ "${#comment}" -lt 12 ]; then
+  die "comment too short (${#comment} chars, minimum 12) — say what changed and why"
+fi
+
+exit 0

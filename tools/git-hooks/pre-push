@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# repodocs:hook — generated from samirhvbr/repodocs and regenerated in place.
+# A copy without this line is the repository's own hook and is never overwritten.
+# pre-push — asks two questions about one line of one file, against the REMOTE.
+#
+# Why here: it is the only hook that sees origin/master. The commit-msg hook
+# provably does not run during a rebase, which is how duplicate versions get
+# born in the first place.
+#
+# It deliberately does NOT run a test suite: a push that waits four minutes
+# becomes `--no-verify` the following week, and then the control is dead.
+#
+# Without a reachable remote it DEGRADES WITH A WARNING, never a refusal — a
+# guard that blocks work when it cannot measure is a guard that gets disabled.
+#
+# Norm: docs/versioning.md · escape hatch: $HOOK_ESCAPE_VAR (see below)
+set -uo pipefail
+
+# Rename this to your project prefix, e.g. SHVIA_NO_HOOK. One place to change.
+HOOK_ESCAPE_VAR="REPODOCS_NO_HOOK"
+
+if [ "${!HOOK_ESCAPE_VAR:-0}" = "1" ]; then
+  echo "pre-push: skipped ($HOOK_ESCAPE_VAR=1)" >&2
+  exit 0
+fi
+
+remote="${1:-origin}"
+version_file="version.md"
+
+if [ ! -f "$version_file" ]; then
+  echo "pre-push: WARNING — no $version_file at repo root; nothing to check." >&2
+  exit 0
+fi
+
+# The version is the FIRST semver in the file, whatever shape the file has:
+# a bare "1.0.0" and a markdown document both satisfy the rule (ADR-012). This
+# is the same reading tools/release.sh does, deliberately — two implementations
+# of one rule is how a rule ends up with two versions, one of them wrong.
+local_version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$version_file" | head -n 1)"
+
+if [ -z "$local_version" ]; then
+  echo "" >&2
+  echo "pre-push: REJECTED — no X.Y.Z version found in $version_file." >&2
+  echo "  The file must contain a semver; the first one in it is the version." >&2
+  echo "  See docs/versioning.md." >&2
+  echo "" >&2
+  exit 1
+fi
+
+# Refresh our view of the remote. Failure here is not the developer's problem.
+if ! git fetch --quiet "$remote" 2>/dev/null; then
+  echo "pre-push: WARNING — could not reach '$remote'; version check skipped." >&2
+  echo "          (Degrading on purpose: see the header of this hook.)" >&2
+  exit 0
+fi
+
+default_branch="$(git symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null | sed "s|^$remote/||")"
+default_branch="${default_branch:-master}"
+ref="refs/remotes/$remote/$default_branch"
+
+if ! git rev-parse --verify --quiet "$ref" >/dev/null; then
+  echo "pre-push: WARNING — $ref not found; version check skipped (new repo?)." >&2
+  exit 0
+fi
+
+remote_version="$(git show "$ref:$version_file" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+
+if [ -z "$remote_version" ]; then
+  echo "pre-push: WARNING — no $version_file on $ref; version check skipped." >&2
+  exit 0
+fi
+
+if [ "$local_version" = "$remote_version" ]; then
+  echo "" >&2
+  echo "pre-push: REJECTED — version $local_version is already on $default_branch." >&2
+  echo "  Bump $version_file in the same commit as the change." >&2
+  echo "  Z = docs/adjustment · Y = new locked ADR or milestone · X = manual." >&2
+  echo "  Rules: docs/versioning.md · bypass: $HOOK_ESCAPE_VAR=1" >&2
+  echo "" >&2
+  exit 1
+fi
+
+# Monotonicity: the version must move forward, never backward.
+lower="$(printf '%s\n%s\n' "$local_version" "$remote_version" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)"
+if [ "$lower" = "$local_version" ]; then
+  echo "" >&2
+  echo "pre-push: REJECTED — version goes BACKWARD." >&2
+  echo "  local:  $local_version" >&2
+  echo "  $default_branch: $remote_version" >&2
+  echo "  Rebase onto $default_branch and bump above the remote version." >&2
+  echo "  Rules: docs/versioning.md · bypass: $HOOK_ESCAPE_VAR=1" >&2
+  echo "" >&2
+  exit 1
+fi
+
+echo "pre-push: version $remote_version -> $local_version — ok" >&2
+exit 0
